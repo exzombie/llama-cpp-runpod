@@ -78,7 +78,28 @@ Or call any supported OpenAI route directly:
 
 ## Model caching
 
-To avoid re-downloading the model on every cold start, use RunPod's [model caching](https://docs.runpod.io/serverless/endpoints/model-caching): set your model repo in the endpoint's *Model* field and fill in the *Cached Model* and *Cached Model GGUF Path* advanced settings. See [docs/cached.md](./docs/cached.md) for a step-by-step guide.
+To avoid re-downloading the model on every cold start, use RunPod's [model caching](https://docs.runpod.io/serverless/endpoints/model-caching): set your model repo in the endpoint's *Model* field and fill in the *Cached Model* and *Cached Model GGUF Path* advanced settings. See [docs/cached.md](./docs/cached.md) for a step-by-step guide. A third option is to bake the model directly into the image (see below).
+
+## Packaging the model into the image
+
+For the fastest possible cold start, bake the GGUF into the Docker image at build time. Pass the model repo (and optionally a quantization) as build args:
+
+```bash
+docker build --build-arg LLAMA_ARG_HF_REPO=unsloth/gemma-3-270m-it-GGUF \
+             --build-arg LLAMA_HF_QUANT=Q6_K \
+             -t llama-baked .
+```
+
+- `LLAMA_ARG_HF_REPO` — Hugging Face GGUF repo to bake in. When omitted, the image is built without a model, exactly as before.
+- `LLAMA_HF_QUANT` — quantization tag or exact `.gguf` filename inside the repo. Defaults to `Q4_K_M` when available.
+- `HF_TOKEN` — optional, for gated repos. **Caution:** build args are recorded in the image history, so prefer public repos or push the token-arg image to a private registry only.
+
+Precedence at runtime: model caching > baked-in model > HF download. In a baked image the template's *Model* field is ignored — the image *is* the model. The baked model keeps its original filename and is recorded in `/models/baked.json` for the startup script.
+
+Caveats:
+
+- The image grows by the model file size (registry storage and per-node pulls scale with it).
+- Source-code edits do not invalidate the model layer, so rebuilding the worker after a change reuses the cached download.
 
 ## License
 

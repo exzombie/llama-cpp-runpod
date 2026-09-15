@@ -8,7 +8,7 @@ set -e -o pipefail
 # Configuration is passed almost entirely through llama-server's native
 # LLAMA_ARG_* environment variables (set from the template UI), which
 # llama-server reads by itself. This script only:
-#   - resolves the model path when RunPod model caching is used,
+#   - resolves the model path when the model is cached or baked into the image,
 #   - appends any extra arguments from LLAMA_SERVER_CMD_ARGS,
 #   - forces the server port to 3098 (CLI arguments override env vars).
 
@@ -31,7 +31,7 @@ cleanup() {
     exit 0
 }
 
-CACHED_LLAMA_ARGS=""
+MODEL_ARGS=""
 
 find_cached_path() {
     local model_path
@@ -39,7 +39,7 @@ find_cached_path() {
     if [ $? -ne 0 ] || [ -z "$model_path" ]; then
         fail "Could not resolve cached model path. Check that LLAMA_CACHED_MODEL and LLAMA_CACHED_GGUF_PATH are correct and the model is fully cached."
     fi
-    CACHED_LLAMA_ARGS="-m $model_path"
+    MODEL_ARGS="-m $model_path"
 }
 
 # When RunPod model caching is used, load the model from the cache and ignore
@@ -47,8 +47,21 @@ find_cached_path() {
 if [ -n "$LLAMA_CACHED_MODEL" ]; then
     echo "start.sh: Model caching is enabled. Resolving cached model path..."
     find_cached_path
-    echo "start.sh: Using cached model: $CACHED_LLAMA_ARGS"
+    echo "start.sh: Using cached model: $MODEL_ARGS"
     unset LLAMA_ARG_HF_REPO LLAMA_ARG_HF_FILE LLAMA_ARG_MODEL
+fi
+
+# A model baked into the image at build time (see fetch_model.py / README).
+# Wins over the HF-download settings, loses to model caching, and falls
+# through to download if a volume is mounted over /models.
+if [ -z "$MODEL_ARGS" ] && [ -f /models/baked.json ]; then
+    BAKED_MODEL=$(python -c "import json;print(json.load(open('/models/baked.json'))['model'])" 2>/dev/null) || true
+    if [ -z "$BAKED_MODEL" ] || [ ! -f "$BAKED_MODEL" ]; then
+        fail "Baked-model manifest /models/baked.json is invalid or its GGUF file is missing."
+    fi
+    echo "start.sh: Using model baked into the image: $BAKED_MODEL"
+    MODEL_ARGS="-m $BAKED_MODEL"
+    unset LLAMA_ARG_HF_REPO LLAMA_ARG_HF_FILE
 fi
 
 # A .gguf filename pasted into the Quantization field is a common mistake -
@@ -70,7 +83,7 @@ if [ -n "$LLAMA_HF_QUANT" ] && [ -n "$LLAMA_ARG_HF_REPO" ] \
 fi
 
 # Require some model source to be configured.
-if [ -z "$CACHED_LLAMA_ARGS" ] && [ -z "$LLAMA_ARG_HF_REPO" ] && [ -z "$LLAMA_ARG_MODEL" ] \
+if [ -z "$MODEL_ARGS" ] && [ -z "$LLAMA_ARG_HF_REPO" ] && [ -z "$LLAMA_ARG_MODEL" ] \
     && [[ "$LLAMA_SERVER_CMD_ARGS" != *"-hf"* ]] && [[ "$LLAMA_SERVER_CMD_ARGS" != *"-m "* ]]; then
     fail "No model configured. Set LLAMA_ARG_HF_REPO (the Model field in the template), or configure model caching with LLAMA_CACHED_MODEL and LLAMA_CACHED_GGUF_PATH."
 fi
@@ -91,12 +104,12 @@ echo "start.sh: Stopping existing llama-server instances (if any)..."
     echo "start.sh: No llama-server running"
 }
 
-echo "start.sh: Running /app/llama-server $CACHED_LLAMA_ARGS $LLAMA_SERVER_CMD_ARGS --port $PORT"
+echo "start.sh: Running /app/llama-server $MODEL_ARGS $LLAMA_SERVER_CMD_ARGS --port $PORT"
 
 touch llama.server.log
 
 # Extra arguments must be passed to llama-server verbatim (unquoted on purpose).
-LD_LIBRARY_PATH=/app /app/llama-server $CACHED_LLAMA_ARGS $LLAMA_SERVER_CMD_ARGS --port $PORT 2>&1 | tee llama.server.log &
+LD_LIBRARY_PATH=/app /app/llama-server $MODEL_ARGS $LLAMA_SERVER_CMD_ARGS --port $PORT 2>&1 | tee llama.server.log &
 
 LLAMA_SERVER_PID=$! # store the process ID (PID) of the background command
 

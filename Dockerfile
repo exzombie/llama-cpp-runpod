@@ -31,11 +31,23 @@ RUN apt-get update --yes --quiet && DEBIAN_FRONTEND=noninteractive apt-get insta
 # Set the working directory
 WORKDIR /work
 
-# Add ./src as /work
-ADD ./src /work
+# Small, frequently changing layers first.
+COPY src/requirements.txt /work/requirements.txt
+RUN pip install -r /work/requirements.txt
 
-# Install runpod and its dependencies
-RUN pip install -r ./requirements.txt && chmod +x /work/start.sh
+# fetch_model.py must precede the (potentially huge) model layer.
+COPY src/fetch_model.py /work/fetch_model.py
+
+# Optional build-time model baking. Defaults are empty: builds without
+# --build-arg produce the same model-less image as before.
+ARG LLAMA_ARG_HF_REPO=""
+ARG LLAMA_HF_QUANT=""
+ARG HF_TOKEN=""
+RUN if [ -n "$LLAMA_ARG_HF_REPO" ]; then python /work/fetch_model.py "$LLAMA_ARG_HF_REPO" "$LLAMA_HF_QUANT"; fi
+
+# Application code last so its changes don't invalidate the model layer.
+ADD ./src /work
+RUN chmod +x /work/start.sh
 
 # Set the entrypoint
 ENTRYPOINT ["/bin/sh", "-c", "/work/start.sh"]
