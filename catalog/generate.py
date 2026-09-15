@@ -37,7 +37,7 @@ TESTS = {
             {"key": "LLAMA_ARG_CTX_SIZE", "value": "2048"},
             {"key": "LLAMA_ARG_N_GPU_LAYERS", "value": "999"},
         ],
-        "allowedCudaVersions": ["12.8", "12.9"],
+        "allowedCudaVersions": ["12.8", "12.9", "13.0", "13.1", "13.2", "13.3", "13.4"],
     },
 }
 
