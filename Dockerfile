@@ -40,8 +40,8 @@ COPY src/fetch_model.py /work/fetch_model.py
 
 # Optional build-time model baking. Defaults are empty: builds without
 # --build-arg produce the same model-less image as before.
-ARG LLAMA_ARG_HF_REPO=""
-ARG LLAMA_HF_QUANT=""
+ARG LLAMA_ARG_HF_REPO="bartowski/TheDrummer_Orion-26B-A4B-v1.1-GGUF"
+ARG LLAMA_HF_QUANT="Q4_K_M"
 ARG HF_TOKEN=""
 RUN if [ -n "$LLAMA_ARG_HF_REPO" ]; then python /work/fetch_model.py "$LLAMA_ARG_HF_REPO" "$LLAMA_HF_QUANT"; fi
 
